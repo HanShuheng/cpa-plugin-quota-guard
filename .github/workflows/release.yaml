@@ -48,14 +48,20 @@ jobs:
           CC: ${{ matrix.cc }}
         run: |
           VERSION=${GITHUB_REF_NAME#v}
+          LIB="codex-quota-guard-v${VERSION}.${{ matrix.ext }}"
           go build -buildvcs=false -trimpath -buildmode=c-shared \
             -ldflags "-s -w -X main.version=$VERSION" \
-            -o "codex-quota-guard-v${VERSION}-${GOOS}-${GOARCH}.${{ matrix.ext }}" .
-          rm -f "codex-quota-guard-v${VERSION}-${GOOS}-${GOARCH}.h" || true
+            -o "$LIB" .
+          rm -f "codex-quota-guard-v${VERSION}.h" || true
+          # 商店安装器约定：zip 内是 <id>-v<版本>.<ext>，zip 名为 <id>_<版本>_<os>_<arch>.zip
+          zip "codex-quota-guard_${VERSION}_${GOOS}_${GOARCH}.zip" "$LIB"
+          shasum -a 256 "codex-quota-guard_${VERSION}_${GOOS}_${GOARCH}.zip" >> checksums.txt
       - uses: actions/upload-artifact@v4
         with:
           name: codex-quota-guard-${{ matrix.os }}-${{ matrix.arch }}
-          path: codex-quota-guard-v*-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}
+          path: |
+            codex-quota-guard_*.zip
+            checksums.txt
 
   release:
     needs: build
@@ -65,6 +71,8 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Merge checksums
+        run: cat dist/checksums.txt 2>/dev/null | sort -u > dist/checksums.txt || true
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
