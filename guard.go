@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -21,6 +22,9 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed web/page.html
+var pageHTML []byte
 
 const (
 	pluginID   = "codex-quota-guard"
@@ -397,12 +401,22 @@ type mgmtRoute struct {
 	Description string
 }
 
+type mgmtResource struct {
+	Path        string
+	Menu        string
+	Description string
+}
+
 func managementRegistration() map[string]any {
 	base := "/v0/management/" + pluginID
 	return map[string]any{
 		"routes": []mgmtRoute{
 			{Method: http.MethodGet, Path: base + "/status", Description: "List discovered Codex credentials, live quota and guard state"},
 			{Method: http.MethodPost, Path: base + "/check", Description: "Run one guard pass now"},
+			{Method: http.MethodGet, Path: base + "/page", Description: "Management page"},
+		},
+		"resources": []mgmtResource{
+			{Path: "/page", Menu: "Codex Quota Guard", Description: "Codex 额度保底守卫：窗口触底自动禁用、恢复自动启用 / Quota floor guard for Codex credentials"},
 		},
 	}
 }
@@ -433,6 +447,11 @@ func (g *Guard) handleManagement(req pluginapi.ManagementRequest) pluginapi.Mana
 		g.mu.Unlock()
 		body, _ := json.MarshalIndent(map[string]any{"accounts": statuses}, "", "  ")
 		return jsonResponse(http.StatusOK, body)
+	case req.Method == http.MethodGet && req.Path == base+"/page":
+		resp := pluginapi.ManagementResponse{StatusCode: http.StatusOK, Body: pageHTML}
+		resp.Headers = http.Header{}
+		resp.Headers.Set("Content-Type", "text/html; charset=utf-8")
+		return resp
 	default:
 		return jsonResponse(http.StatusNotFound, []byte(`{"error":"not found"}`))
 	}

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codex Quota Guard</title>
+<style>
+  :root { color-scheme: light dark; }
+  [data-theme="dark"] { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px; font: 14px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f6f7f9; color: #1f2328;
+  }
+  [data-theme="dark"] body { background: #0d1117; color: #e6edf3; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #656d76; font-size: 12.5px; margin-bottom: 18px; }
+  [data-theme="dark"] .sub { color: #8b949e; }
+  .card {
+    background: #fff; border: 1px solid #d0d7de; border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  [data-theme="dark"] .card { background: #161b22; border-color: #30363d; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .name { font-weight: 600; font-size: 13.5px; word-break: break-all; }
+  .badge {
+    display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 999px;
+    border: 1px solid transparent; white-space: nowrap;
+  }
+  .b-green { background: #dafbe1; color: #116329; }
+  .b-red   { background: #ffebe9; color: #cf222e; }
+  .b-gray  { background: #eaeef2; color: #57606a; }
+  .b-blue  { background: #ddf4ff; color: #0969da; }
+  [data-theme="dark"] .b-green { background: #0f2417; color: #56d364; }
+  [data-theme="dark"] .b-red   { background: #2d0d0f; color: #f85149; }
+  [data-theme="dark"] .b-gray  { background: #21262d; color: #8b949e; }
+  [data-theme="dark"] .b-blue  { background: #0c2d5b; color: #58a6ff; }
+  .bar { height: 8px; border-radius: 4px; background: #eaeef2; overflow: hidden; flex: 1; min-width: 90px; }
+  [data-theme="dark"] .bar { background: #21262d; }
+  .bar > i { display: block; height: 100%; border-radius: 4px; background: #2da44e; }
+  .bar.warn > i { background: #bf8700; }
+  .bar.low  > i { background: #cf222e; }
+  .meter { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; color: #57606a; }
+  [data-theme="dark"] .meter { color: #8b949e; }
+  .meter b { min-width: 44px; }
+  .detail { font-size: 12px; color: #656d76; margin-top: 6px; word-break: break-all; }
+  [data-theme="dark"] .detail { color: #8b949e; }
+  button {
+    font: inherit; padding: 5px 14px; border-radius: 7px; border: 1px solid #d0d7de;
+    background: #f6f8fa; cursor: pointer;
+  }
+  [data-theme="dark"] button { background: #21262d; border-color: #30363d; color: #e6edf3; }
+  button:hover { background: #eef1f4; }
+  [data-theme="dark"] button:hover { background: #30363d; }
+  input[type=password] {
+    font: inherit; padding: 5px 10px; border-radius: 7px; border: 1px solid #d0d7de; min-width: 220px;
+    background: #fff; color: inherit;
+  }
+  [data-theme="dark"] input[type=password] { background: #0d1117; border-color: #30363d; }
+  .err { color: #cf222e; font-size: 12.5px; }
+  #refresh-info { font-size: 12px; color: #656d76; }
+</style>
+</head>
+<body>
+  <h1>Codex Quota Guard</h1>
+  <div class="sub">额度保底守卫 — 窗口触底自动禁用，恢复后自动启用（直查上游实时额度）</div>
+
+  <div id="key-section" class="card" hidden>
+    <div class="row">
+      <span>需要管理密钥：</span>
+      <input type="password" id="key-input" placeholder="Management Key">
+      <button id="key-save">保存</button>
+    </div>
+    <div class="detail">在管理中心登录时勾选"记住密码"可直接使用；否则请输入密钥（仅保存在当前标签页）。</div>
+    <div class="err" id="key-err" hidden></div>
+  </div>
+
+  <div id="app" hidden>
+    <div class="row" style="margin-bottom:14px">
+      <button id="check-now">立即检查</button>
+      <span id="refresh-info"></span>
+      <span class="err" id="load-err" hidden></span>
+    </div>
+    <div id="accounts"></div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+  var API = "/v0/management/codex-quota-guard";
+  var KEY_STORE = "quota-guard-management-key";
+  var key = "";
+
+  // 主题跟随管理中心 iframe
+  function applyTheme() {
+    var theme = "light";
+    try {
+      if (window.parent !== window) {
+        var v = window.parent.document.documentElement.getAttribute("data-theme");
+        if (v) theme = v;
+      } else {
+        var parsed = JSON.parse(localStorage.getItem("cli-proxy-theme") || "null");
+        var stored = (parsed && parsed.state && parsed.state.theme) || (parsed && parsed.theme) || "auto";
+        if (stored === "dark" || stored === "white") theme = stored;
+        else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) theme = "dark";
+      }
+    } catch (e) {}
+    if (theme === "white") theme = "light";
+    if (theme === "light") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", theme);
+  }
+
+  // 管理中心"记住密码"时密钥存在 localStorage（可带 XOR 混淆）
+  function centerKey() {
+    try {
+      var raw = localStorage.getItem("cli-proxy-auth");
+      if (!raw) return "";
+      var prefix = "enc::v1::";
+      if (raw.indexOf(prefix) === 0) {
+        var data = atob(raw.slice(prefix.length));
+        var mask = new TextEncoder().encode("cli-proxy-api-webui::secure-storage|" + location.host + "|" + navigator.userAgent);
+        var bytes = new Uint8Array(data.length);
+        for (var i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i) ^ mask[i % mask.length];
+        raw = new TextDecoder().decode(bytes);
+      }
+      var parsed = JSON.parse(raw);
+      var stored = parsed && parsed.state ? parsed.state : parsed;
+      return stored && typeof stored.managementKey === "string" ? stored.managementKey : "";
+    } catch (e) { return ""; }
+  }
+
+  function api(method, path) {
+    var opts = { method: method, headers: { "Authorization": "Bearer " + key, "Accept": "application/json" } };
+    return fetch(path, opts).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (res.status === 401) { askForKey(); throw new Error("unauthorized"); }
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+        return data;
+      });
+    });
+  }
+
+  function askForKey() {
+    key = "";
+    sessionStorage.removeItem(KEY_STORE);
+    document.getElementById("app").hidden = true;
+    document.getElementById("key-section").hidden = false;
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function fmtTime(s) {
+    if (!s) return "—";
+    var d = new Date(s);
+    if (isNaN(d)) return esc(s);
+    var pad = function (n) { return n < 10 ? "0" + n : n; };
+    return pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
+  function meter(label, pct, reset) {
+    var cls = pct <= 10 ? "low" : (pct <= 30 ? "warn" : "");
+    var width = Math.max(0, Math.min(100, pct));
+    return '<div class="meter"><b>' + label + " " + Math.round(pct) + '%</b>' +
+      '<span class="bar ' + cls + '"><i style="width:' + width + '%"></i></span>' +
+      '<span>重置 ' + esc(fmtTime(reset)) + "</span></div>";
+  }
+
+  function badge(text, cls) { return '<span class="badge ' + cls + '">' + esc(text) + "</span>"; }
+
+  function render(data) {
+    var list = data.accounts || [];
+    var box = document.getElementById("accounts");
+    box.innerHTML = "";
+    if (!list.length) {
+      box.innerHTML = '<div class="card">尚未发现 Codex OAuth 凭证。等待下一轮检查，或点"立即检查"。</div>';
+      return;
+    }
+    list.forEach(function (a) {
+      var badges = a.protected ? badge("已保护", "b-blue") : badge("未保护", "b-gray");
+      if (a.disabled) badges += " " + badge(a.guard_owned ? "守卫已禁用" : "手动禁用", "b-red");
+      else badges += " " + badge("启用中", "b-green");
+      var html = '<div class="card"><div class="row"><span class="name">' + esc(a.name) + "</span>" + badges + "</div>";
+      if (a.fetch_error) html += '<div class="detail err">额度查询失败：' + esc(a.fetch_error) + "</div>";
+      else {
+        html += meter("5小时窗口", a.five_hour_remaining_percent, a.five_hour_reset);
+        html += meter("周窗口", a.weekly_remaining_percent, a.weekly_reset);
+      }
+      if (a.last_action) html += '<div class="detail">最近动作：' + esc(a.last_action) + "</div>";
+      html += '<div class="detail">观测于 ' + esc(fmtTime(a.observed_at)) + "</div></div>";
+      box.insertAdjacentHTML("beforeend", html);
+    });
+  }
+
+  function load() {
+    api("GET", API + "/status").then(function (data) {
+      document.getElementById("load-err").hidden = true;
+      document.getElementById("refresh-info").textContent = "已于 " + new Date().toLocaleTimeString() + " 刷新";
+      render(data);
+    }).catch(function (e) {
+      if (e.message !== "unauthorized") {
+        var el = document.getElementById("load-err");
+        el.textContent = "加载失败：" + e.message;
+        el.hidden = false;
+      }
+    });
+  }
+
+  document.getElementById("check-now").addEventListener("click", function () {
+    var btn = this;
+    btn.disabled = true;
+    api("POST", API + "/check").then(render).catch(function () {}).then(function () {
+      btn.disabled = false;
+      document.getElementById("refresh-info").textContent = "已于 " + new Date().toLocaleTimeString() + " 手动检查";
+    });
+  });
+
+  document.getElementById("key-save").addEventListener("click", function () {
+    key = document.getElementById("key-input").value.trim();
+    if (!key) return;
+    sessionStorage.setItem(KEY_STORE, key);
+    document.getElementById("key-section").hidden = true;
+    document.getElementById("app").hidden = false;
+    load();
+  });
+
+  applyTheme();
+  key = sessionStorage.getItem(KEY_STORE) || centerKey();
+  if (key) {
+    document.getElementById("app").hidden = false;
+    load();
+    setInterval(load, 10000);
+  } else {
+    askForKey();
+  }
+})();
+</script>
+</body>
+</html>
