@@ -301,7 +301,10 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
           <label><span>查询间隔（秒）</span><input name="poll-interval-seconds" type="number" min="60" step="30"></label>
           <label><span>全局下限 · 5 小时窗口（%）</span><input name="primary-min-remaining" type="number" min="0" max="100" step="1"></label>
           <label><span>全局下限 · 周窗口（%）</span><input name="secondary-min-remaining" type="number" min="0" max="100" step="1"></label>
+          <label><span>被动数据跳过（秒）</span><input name="passive-skip-seconds" type="number" min="0" step="30"></label>
+          <label><span>未保护账号兜底查询（秒）</span><input name="unprotected-fetch-interval-seconds" type="number" min="60" step="60"></label>
         </div>
+        <p class="hint" style="margin-top:10px">防频繁策略：账号刚服务过真实请求时（响应头自带额度数据，即“被动数据”）跳过主动查询；未保护账号平时只用被动数据，仅按“兜底查询”间隔主动查一次用于展示。主动查询槽位对齐整点。</p>
         <div class="checks" style="margin-top:10px">
           <label class="inline"><input type="checkbox" name="protect-all-codex"><span>保护全部 Codex OAuth 凭证（勾选后下方“受保护账号”列表仍生效，可用“排除”去掉个别账号）</span></label>
         </div>
@@ -474,7 +477,8 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
         html += meter("7 天窗口", a.weekly_remaining_percent, a.weekly_reset, idx++);
       }
       if (a.last_action) html += '<div class="cell-note" title="' + esc(a.last_action) + '">最近动作：' + esc(a.last_action) + "</div>";
-      html += '<div class="cell-note">观测于 ' + esc(fmtDateTime(a.observed_at)) + "</div></div>";
+      var srcLabel = a.source === "passive" ? "被动（真实请求）" : (a.source === "cached" ? "沿用上次" : "主动查询");
+      html += '<div class="cell-note">数据来源：' + esc(srcLabel) + " · 观测于 " + esc(fmtDateTime(a.observed_at)) + "</div></div>";
       box.insertAdjacentHTML("beforeend", html);
     });
   }
@@ -619,6 +623,8 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
     f.elements["primary-min-remaining"].value = gp;
     f.elements["secondary-min-remaining"].value = gs;
     f.elements["protect-all-codex"].checked = !!cfg["protect-all-codex"];
+    f.elements["passive-skip-seconds"].value = cfg["passive-skip-seconds"] != null ? cfg["passive-skip-seconds"] : 300;
+    f.elements["unprotected-fetch-interval-seconds"].value = cfg["unprotected-fetch-interval-seconds"] != null ? cfg["unprotected-fetch-interval-seconds"] : 1800;
     var rows = $("rule-rows");
     rows.innerHTML = "";
     (cfg.accounts || []).forEach(function (rule) { rows.appendChild(ruleRow(rule)); });
@@ -655,6 +661,8 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
       "primary-min-remaining": Math.min(100, Math.max(0, Number(f.elements["primary-min-remaining"].value) || 0)),
       "secondary-min-remaining": Math.min(100, Math.max(0, Number(f.elements["secondary-min-remaining"].value) || 0)),
       "protect-all-codex": f.elements["protect-all-codex"].checked,
+      "passive-skip-seconds": Math.max(0, Number(f.elements["passive-skip-seconds"].value) || 0),
+      "unprotected-fetch-interval-seconds": Math.max(60, Number(f.elements["unprotected-fetch-interval-seconds"].value) || 1800),
       accounts: accounts,
       exclude: exclude
     };

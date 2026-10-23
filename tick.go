@@ -72,14 +72,7 @@ func (g *Guard) checkOne(cfg Config, entry pluginapi.HostAuthFileEntry) AccountS
 	primaryMin, secondaryMin, protected := g.ruleFor(cfg, entry.Name, entry.Label)
 	status.Protected = protected
 
-	var getResp pluginapi.HostAuthGetResponse
-	if err := g.call(pluginabi.MethodHostAuthGet, pluginapi.HostAuthGetRequest{AuthIndex: entry.AuthIndex}, &getResp); err != nil {
-		status.FetchError = "auth.get: " + err.Error()
-		g.setStatus(status)
-		return status
-	}
-
-	usage, err := g.fetchUsage(getResp.JSON)
+	usage, source, observedAt, err := g.obtainUsage(cfg, entry, protected)
 	if err != nil {
 		status.FetchError = err.Error()
 		// Fetch failed: fall back to reset-time recovery for guard-owned
@@ -90,7 +83,10 @@ func (g *Guard) checkOne(cfg Config, entry pluginapi.HostAuthFileEntry) AccountS
 		g.setStatus(status)
 		return status
 	}
-
+	status.Source = source
+	if observedAt != (time.Time{}) {
+		status.ObservedAt = observedAt.Format(time.RFC3339)
+	}
 	status.FiveHourRemainingPct = usage.FiveHourRemaining
 	status.WeeklyRemainingPct = usage.WeeklyRemaining
 	status.FiveHourReset = usage.FiveHourReset
@@ -121,7 +117,8 @@ func (g *Guard) checkOne(cfg Config, entry pluginapi.HostAuthFileEntry) AccountS
 			g.setStatus(status)
 			return status
 		}
-		if g.saveDisabled(entry.Name, getResp.JSON, true) {
+		credJSON := g.credentialJSON(entry.AuthIndex)
+		if credJSON != nil && g.saveDisabled(entry.Name, credJSON, true) {
 			now := time.Now().Format(time.RFC3339)
 			g.mu.Lock()
 			g.state.Accounts[entry.Name] = AccountState{Disabled: true, Breaches: breaches, Resets: resets, DisabledAt: now}
@@ -156,7 +153,7 @@ func (g *Guard) checkOne(cfg Config, entry pluginapi.HostAuthFileEntry) AccountS
 		g.setStatus(status)
 		return status
 	}
-	if g.saveDisabled(entry.Name, getResp.JSON, false) {
+	if credJSON := g.credentialJSON(entry.AuthIndex); credJSON != nil && g.saveDisabled(entry.Name, credJSON, false) {
 		g.mu.Lock()
 		delete(g.state.Accounts, entry.Name)
 		g.persistState()
@@ -230,7 +227,7 @@ func (g *Guard) recoverByResetTime(entry pluginapi.HostAuthFileEntry) {
 	if err := g.call(pluginabi.MethodHostAuthGet, pluginapi.HostAuthGetRequest{AuthIndex: entry.AuthIndex}, &getResp); err != nil {
 		return
 	}
-	if g.saveDisabled(entry.Name, getResp.JSON, false) {
+	if credJSON := g.credentialJSON(entry.AuthIndex); credJSON != nil && g.saveDisabled(entry.Name, credJSON, false) {
 		g.mu.Lock()
 		delete(g.state.Accounts, entry.Name)
 		g.recordEvent("reset-recovered", entry.Name, "额度查询持续失败但触底窗口已过重置时间")
@@ -408,4 +405,63 @@ func clamp(v float64) float64 {
 		return 100
 	}
 	return v
+}
+
+// credentialJSON 取凭证原始 JSON（禁用/启用时要原样保存回去）。
+func (g *Guard) credentialJSON(authIndex string) json.RawMessage {
+	var getResp pluginapi.HostAuthGetResponse
+	if err := g.call(pluginabi.MethodHostAuthGet, pluginapi.HostAuthGetRequest{AuthIndex: authIndex}, &getResp); err != nil {
+		return nil
+	}
+	return getResp.JSON
+}
+
+// obtainUsage 决定一次额度读数的来源（借鉴 Lamplighter 的防风险策略）：
+//  1. 被动优先：凭证最近服务过真实请求（响应头携带额度信号）时直接采用，零主动查询；
+//  2. 受保护凭证：无被动数据时每轮主动查询（守卫决策依赖）；
+//  3. 未保护凭证：仅当兜底间隔到期才主动查询，其余轮次沿用上次读数。
+func (g *Guard) obtainUsage(cfg Config, entry pluginapi.HostAuthFileEntry, protected bool) (liveUsage, string, time.Time, error) {
+	now := time.Now()
+	g.mu.Lock()
+	sample, hasPassive := g.passive[entry.AuthIndex]
+	passiveSkip := time.Duration(cfg.PassiveSkipSeconds) * time.Second
+	if passiveSkip <= 0 {
+		passiveSkip = 5 * time.Minute
+	}
+	fallbackEvery := time.Duration(cfg.UnprotectedFetchSecs) * time.Second
+	if fallbackEvery <= 0 {
+		fallbackEvery = 30 * time.Minute
+	}
+	lastFetch := g.lastActive[entry.Name]
+	prev := g.status[entry.Name]
+	g.mu.Unlock()
+
+	if hasPassive && now.Sub(sample.At) <= passiveSkip {
+		return sample.Usage, "passive", sample.At, nil
+	}
+	if !protected && !lastFetch.IsZero() && now.Sub(lastFetch) < fallbackEvery && prev.FetchError == "" {
+		return liveUsage{
+			FiveHourRemaining: prev.FiveHourRemainingPct,
+			WeeklyRemaining:   prev.WeeklyRemainingPct,
+			FiveHourReset:     prev.FiveHourReset,
+			WeeklyReset:       prev.WeeklyReset,
+		}, "cached", time.Time{}, nil
+	}
+	usage, err := g.fetchLive(entry.AuthIndex)
+	if err != nil {
+		return liveUsage{}, "", time.Time{}, err
+	}
+	g.mu.Lock()
+	g.lastActive[entry.Name] = now
+	g.mu.Unlock()
+	return usage, "active", now, nil
+}
+
+// fetchLive 主动查询一次上游实时额度。
+func (g *Guard) fetchLive(authIndex string) (liveUsage, error) {
+	var getResp pluginapi.HostAuthGetResponse
+	if err := g.call(pluginabi.MethodHostAuthGet, pluginapi.HostAuthGetRequest{AuthIndex: authIndex}, &getResp); err != nil {
+		return liveUsage{}, fmt.Errorf("auth.get: %w", err)
+	}
+	return g.fetchUsage(getResp.JSON)
 }

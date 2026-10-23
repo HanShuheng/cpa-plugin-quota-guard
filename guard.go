@@ -48,6 +48,8 @@ type Config struct {
 	Enabled               bool          `yaml:"enabled" json:"enabled"`
 	PollIntervalSeconds   int           `yaml:"poll-interval-seconds" json:"poll-interval-seconds"`
 	ProtectAllCodex       bool          `yaml:"protect-all-codex" json:"protect-all-codex"`
+	PassiveSkipSeconds    int           `yaml:"passive-skip-seconds" json:"passive-skip-seconds"`
+	UnprotectedFetchSecs  int           `yaml:"unprotected-fetch-interval-seconds" json:"unprotected-fetch-interval-seconds"`
 	PrimaryMinRemaining   float64       `yaml:"primary-min-remaining" json:"primary-min-remaining"`
 	SecondaryMinRemaining float64       `yaml:"secondary-min-remaining" json:"secondary-min-remaining"`
 	Accounts              []AccountRule `yaml:"accounts" json:"accounts"`
@@ -58,6 +60,8 @@ func defaultConfig() Config {
 	return Config{
 		Enabled:               true,
 		PollIntervalSeconds:   300,
+		PassiveSkipSeconds:    300,
+		UnprotectedFetchSecs:  1800,
 		PrimaryMinRemaining:   10,
 		SecondaryMinRemaining: 5,
 	}
@@ -112,25 +116,29 @@ type Guard struct {
 	version string
 	dataDir string
 
-	mu      sync.Mutex
-	cfg     Config
-	cfgErr  error
-	status  map[string]AccountStatus // keyed by credential file name
-	state   PersistedState
-	started bool
-	stopped bool
-	stop    chan struct{}
-	done    chan struct{}
+	mu         sync.Mutex
+	cfg        Config
+	cfgErr     error
+	status     map[string]AccountStatus // keyed by credential file name
+	state      PersistedState
+	passive    map[string]passiveSample // keyed by auth index
+	lastActive map[string]time.Time     // 上次主动查询时间，keyed by file name
+	started    bool
+	stopped    bool
+	stop       chan struct{}
+	done       chan struct{}
 }
 
 func NewGuard(host Caller, version string) *Guard {
 	return &Guard{
-		host:    host,
-		version: version,
-		dataDir: resolveDataDir(),
-		stop:    make(chan struct{}),
-		done:    make(chan struct{}),
-		status:  map[string]AccountStatus{},
+		host:       host,
+		version:    version,
+		dataDir:    resolveDataDir(),
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
+		status:     map[string]AccountStatus{},
+		passive:    map[string]passiveSample{},
+		lastActive: map[string]time.Time{},
 	}
 }
 
@@ -367,6 +375,12 @@ func (g *Guard) handle(method string, request []byte) ([]byte, error) {
 	case pluginabi.MethodPluginQuiesce, pluginabi.MethodPluginShutdown:
 		g.Shutdown()
 		return ok(struct{}{})
+	case pluginabi.MethodUsageHandle:
+		var record pluginapi.UsageRecord
+		if err := json.Unmarshal(request, &record); err == nil {
+			g.observeUsage(record)
+		}
+		return ok(struct{}{})
 	case pluginabi.MethodManagementRegister:
 		return ok(managementRegistration())
 	case pluginabi.MethodManagementHandle:
@@ -413,9 +427,11 @@ func (g *Guard) registration() map[string]any {
 				{Name: "secondary-min-remaining", Type: pluginapi.ConfigFieldTypeNumber, Description: "全局默认：周窗口剩余百分比低于此值时禁用 / Global default floor for the weekly window, in percent remaining"},
 				{Name: "accounts", Type: pluginapi.ConfigFieldTypeObject, Description: "受保护凭证列表，每项含 match（文件名/邮箱子串）及可选阈值覆盖 / Guarded credentials: match (file-name/email substring) plus optional floor overrides"},
 				{Name: "exclude", Type: pluginapi.ConfigFieldTypeObject, Description: "排除的凭证子串列表（配合 protect-all-codex）/ Excluded credential substrings (with protect-all-codex)"},
+				{Name: "passive-skip-seconds", Type: pluginapi.ConfigFieldTypeInteger, Description: "最近一次真实请求（被动数据）在这么多秒内时跳过主动查询，降低上游请求量 / Skip active queries when passive data arrived within this many seconds"},
+				{Name: "unprotected-fetch-interval-seconds", Type: pluginapi.ConfigFieldTypeInteger, Description: "未保护凭证的主动查询兜底间隔 / Fallback active-query interval for unprotected credentials"},
 			},
 		},
-		"capabilities": map[string]bool{"management_api": true},
+		"capabilities": map[string]bool{"management_api": true, "usage_plugin": true},
 	}
 }
 
@@ -523,7 +539,9 @@ func (g *Guard) loop() {
 		if interval <= 0 {
 			interval = 5 * time.Minute
 		}
-		timer := time.NewTimer(interval)
+		now := time.Now()
+		next := now.Truncate(interval).Add(interval)
+		timer := time.NewTimer(next.Sub(now))
 		select {
 		case <-g.stop:
 			timer.Stop()
