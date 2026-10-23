@@ -232,15 +232,24 @@ form label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px;
 form input[type="number"], form input[type="text"] { width: 100%; font: inherit; padding: 6px 9px; border-radius: 7px; border: 1px solid var(--border-primary); background: var(--bg-secondary); color: var(--text-primary); }
 .checks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
 label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13px; color: var(--text-primary); }
-.account-rule { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(110px, 130px) minmax(110px, 130px) 36px; gap: 10px; align-items: end; max-width: 680px; }
+.account-rule, .rule-head {
+  display: grid; grid-template-columns: minmax(220px, 1fr) minmax(110px, 130px) minmax(110px, 130px) 36px;
+  gap: 10px; align-items: center; max-width: 680px;
+}
+.rule-head { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
 .account-rule.compact { grid-template-columns: minmax(220px, 1fr) 36px; max-width: 480px; }
-.account-rule label > span, .account-rule label > .r-match-slot { display: block; }
+/* 下拉框、数字输入框、删除按钮严格同高同盒模型 */
+.account-rule .cred-select,
+.account-rule input[type="number"],
+.account-rule .btn-danger {
+  height: 36px; box-sizing: border-box; font-size: 13px;
+}
+.account-rule .btn-danger { width: 36px; padding: 0; font-size: 15px; line-height: 1; }
 .cred-select {
-  font: inherit; font-size: 13px; width: 100%; min-height: 36px; padding: 6px 10px;
+  font: inherit; width: 100%; padding: 0 10px;
   border-radius: 8px; border: 1px solid var(--border-primary);
   background: var(--bg-secondary); color: var(--text-primary); cursor: pointer;
 }
-form .account-rule input[type="number"] { min-height: 36px; }
 .rule-rows { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
 .btn-ghost { background: transparent; color: var(--text-secondary); }
 .btn-ghost:hover { background: var(--bg-hover); }
@@ -289,22 +298,24 @@ form .account-rule input[type="number"] { min-height: 36px; }
       <fieldset>
         <legend>守卫</legend>
         <div class="grid-3">
-          <label><span>轮询间隔（秒）</span><input name="poll-interval-seconds" type="number" min="60" step="30"></label>
-          <label><span>5 小时窗口下限（剩余 %）</span><input name="primary-min-remaining" type="number" min="0" max="100" step="1"></label>
-          <label><span>周窗口下限（剩余 %）</span><input name="secondary-min-remaining" type="number" min="0" max="100" step="1"></label>
+          <label><span>查询间隔（秒）</span><input name="poll-interval-seconds" type="number" min="60" step="30"></label>
+          <label><span>全局下限 · 5 小时窗口（%）</span><input name="primary-min-remaining" type="number" min="0" max="100" step="1"></label>
+          <label><span>全局下限 · 周窗口（%）</span><input name="secondary-min-remaining" type="number" min="0" max="100" step="1"></label>
         </div>
         <div class="checks" style="margin-top:10px">
-          <label class="inline"><input type="checkbox" name="protect-all-codex"><span>保护全部 Codex OAuth 凭证（默认只保护下方列表中的账号）</span></label>
+          <label class="inline"><input type="checkbox" name="protect-all-codex"><span>保护全部 Codex OAuth 凭证（勾选后下方“受保护账号”列表仍生效，可用“排除”去掉个别账号）</span></label>
         </div>
       </fieldset>
       <fieldset>
         <legend>受保护账号</legend>
+        <div class="rule-head"><span>凭证</span><span>5小时窗口下限 %</span><span>周窗口下限 %</span><span></span></div>
         <div id="rule-rows" class="rule-rows"></div>
         <button type="button" id="add-rule" class="btn btn-secondary btn-sm">+ 添加账号</button>
-        <p class="hint">从下拉框选择要保护的凭证。额度剩余降到下限时自动禁用该凭证，恢复后自动启用；下限留空沿用全局，填 0 表示该窗口不设限。</p>
+        <p class="hint" id="rule-hint"></p>
       </fieldset>
       <fieldset id="exclude-fieldset">
-        <legend>排除（配合“保护全部”）</legend>
+        <legend>排除（仅“保护全部”开启时生效）</legend>
+        <div class="rule-head" style="grid-template-columns:minmax(220px,1fr) 36px"><span>凭证</span><span></span></div>
         <div id="exclude-rows" class="rule-rows"></div>
         <button type="button" id="add-exclude" class="btn btn-secondary btn-sm">+ 添加排除</button>
       </fieldset>
@@ -564,37 +575,49 @@ form .account-rule input[type="number"] { min-height: 36px; }
     return select;
   }
 
+  var globalFloors = { p: 10, s: 5 }; // fillSettings 更新，用于占位符与提示文案
+
+  function numInput(cls, value, globalVal) {
+    var input = document.createElement("input");
+    input.type = "number"; input.className = cls; input.min = "0"; input.max = "100";
+    input.placeholder = "留空=全局 " + globalVal;
+    input.value = value != null ? value : "";
+    return input;
+  }
+
   function ruleRow(rule) {
     var div = document.createElement("div");
     div.className = "account-rule";
-    div.innerHTML =
-      '<label><span>凭证</span><span class="r-match-slot"></span></label>' +
-      '<label><span>5h 下限</span><input type="number" class="r-primary" min="0" max="100" placeholder="全局"></label>' +
-      '<label><span>周下限</span><input type="number" class="r-secondary" min="0" max="100" placeholder="全局"></label>' +
-      '<button type="button" class="btn btn-danger" title="删除">✕</button>';
-    div.querySelector(".r-match-slot").appendChild(matchSelect(rule.match || "", "r-match"));
-    div.querySelector(".r-primary").value = rule["primary-min-remaining"] != null ? rule["primary-min-remaining"] : "";
-    div.querySelector(".r-secondary").value = rule["secondary-min-remaining"] != null ? rule["secondary-min-remaining"] : "";
-    div.querySelector("button").addEventListener("click", function () { div.remove(); });
+    div.appendChild(matchSelect(rule.match || "", "r-match"));
+    div.appendChild(numInput("r-primary", rule["primary-min-remaining"], globalFloors.p));
+    div.appendChild(numInput("r-secondary", rule["secondary-min-remaining"], globalFloors.s));
+    var del = document.createElement("button");
+    del.type = "button"; del.className = "btn btn-danger"; del.title = "删除"; del.textContent = "✕";
+    del.addEventListener("click", function () { div.remove(); });
+    div.appendChild(del);
     return div;
   }
 
   function excludeRow(value) {
     var div = document.createElement("div");
     div.className = "account-rule compact";
-    div.innerHTML =
-      '<label><span>凭证</span><span class="r-match-slot"></span></label>' +
-      '<button type="button" class="btn btn-danger" title="删除">✕</button>';
-    div.querySelector(".r-match-slot").appendChild(matchSelect(value || "", "r-match"));
-    div.querySelector("button").addEventListener("click", function () { div.remove(); });
+    div.appendChild(matchSelect(value || "", "r-match"));
+    var del = document.createElement("button");
+    del.type = "button"; del.className = "btn btn-danger"; del.title = "删除"; del.textContent = "✕";
+    del.addEventListener("click", function () { div.remove(); });
+    div.appendChild(del);
     return div;
   }
 
   function fillSettings(cfg) {
     var f = $("settings");
-    f.elements["poll-interval-seconds"].value = cfg["poll-interval-seconds"] != null ? cfg["poll-interval-seconds"] : 300;
-    f.elements["primary-min-remaining"].value = cfg["primary-min-remaining"] != null ? cfg["primary-min-remaining"] : 10;
-    f.elements["secondary-min-remaining"].value = cfg["secondary-min-remaining"] != null ? cfg["secondary-min-remaining"] : 5;
+    var poll = cfg["poll-interval-seconds"] != null ? cfg["poll-interval-seconds"] : 300;
+    var gp = cfg["primary-min-remaining"] != null ? cfg["primary-min-remaining"] : 10;
+    var gs = cfg["secondary-min-remaining"] != null ? cfg["secondary-min-remaining"] : 5;
+    globalFloors = { p: gp, s: gs };
+    f.elements["poll-interval-seconds"].value = poll;
+    f.elements["primary-min-remaining"].value = gp;
+    f.elements["secondary-min-remaining"].value = gs;
     f.elements["protect-all-codex"].checked = !!cfg["protect-all-codex"];
     var rows = $("rule-rows");
     rows.innerHTML = "";
@@ -602,6 +625,8 @@ form .account-rule input[type="number"] { min-height: 36px; }
     var ex = $("exclude-rows");
     ex.innerHTML = "";
     (cfg.exclude || []).forEach(function (v) { ex.appendChild(excludeRow(v)); });
+    $("rule-hint").textContent = "受保护的凭证：剩余额度降到下限（%）时自动禁用，窗口重置后自动恢复。"
+      + "两个下限留空时用全局下限（当前：5 小时窗口 " + gp + "%、周窗口 " + gs + "%）；填 0 表示该窗口不设限。";
     syncExcludeVisibility();
   }
 
