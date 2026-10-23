@@ -235,6 +235,12 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
 .account-rule { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(110px, 130px) minmax(110px, 130px) 36px; gap: 10px; align-items: end; max-width: 680px; }
 .account-rule.compact { grid-template-columns: minmax(220px, 1fr) 36px; max-width: 480px; }
 .account-rule label > span, .account-rule label > .r-match-slot { display: block; }
+.cred-select {
+  font: inherit; font-size: 13px; width: 100%; min-height: 36px; padding: 6px 10px;
+  border-radius: 8px; border: 1px solid var(--border-primary);
+  background: var(--bg-secondary); color: var(--text-primary); cursor: pointer;
+}
+form .account-rule input[type="number"] { min-height: 36px; }
 .rule-rows { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
 .btn-ghost { background: transparent; color: var(--text-secondary); }
 .btn-ghost:hover { background: var(--bg-hover); }
@@ -512,7 +518,9 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
     return m && m[1] ? m[1] : name;
   }
 
-  // matchSelect 生成凭证下拉框；已配置但不在已发现列表里的值保留为额外选项。
+  // matchSelect 生成凭证下拉框，只列出实际发现的凭证。
+  // 旧配置里的子串值（如 mdb25jv772）自动匹配到对应账号并选中；
+  // 只有完全匹配不上任何已发现凭证时，才以"未匹配"标注保留。
   function matchSelect(current, cls) {
     var seen = {}, options = [];
     discoveredAccounts.forEach(function (a) {
@@ -522,21 +530,13 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
       options.push({ value: v, label: shortName(a.name) });
     });
     var select = document.createElement("select");
-    select.className = cls;
-    select.style.cssText = "font:inherit;padding:6px 9px;border-radius:7px;border:1px solid var(--border-primary);background:var(--bg-secondary);color:var(--text-primary);width:100%";
+    select.className = cls + " cred-select";
     if (!options.length) {
       var empty = document.createElement("option");
       empty.value = current || "";
-      empty.textContent = current ? "当前: " + current : "（尚未发现凭证，先点立即检查）";
+      empty.textContent = current ? "未匹配: " + current : "（尚未发现凭证，先点『立即检查』）";
       select.appendChild(empty);
-      select.disabled = !current;
       return select;
-    }
-    if (current && !seen[current]) {
-      var extra = document.createElement("option");
-      extra.value = current;
-      extra.textContent = "当前: " + current;
-      select.appendChild(extra);
     }
     options.forEach(function (opt) {
       var o = document.createElement("option");
@@ -544,8 +544,23 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
       o.textContent = opt.label;
       select.appendChild(o);
     });
-    select.value = (current && (seen[current] || options.some(function (x) { return x.value === current; }))) ? current : (options[0].value === current ? current : current || options[0].value);
-    if (current) select.value = current;
+    // 解析应选项：精确相等 > 互相包含（旧子串匹配新完整邮箱）
+    var chosen = "";
+    if (current) {
+      options.forEach(function (opt) {
+        if (!chosen && (opt.value === current || opt.value.indexOf(current) >= 0 || current.indexOf(opt.value) >= 0)) {
+          chosen = opt.value;
+        }
+      });
+    }
+    if (current && !chosen) {
+      var extra = document.createElement("option");
+      extra.value = current;
+      extra.textContent = "未匹配: " + current;
+      select.insertBefore(extra, select.firstChild);
+      chosen = current;
+    }
+    select.value = chosen || options[0].value;
     return select;
   }
 
