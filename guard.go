@@ -476,14 +476,26 @@ func (g *Guard) handleManagement(req pluginapi.ManagementRequest) pluginapi.Mana
 		g.mu.Unlock()
 		body, _ := json.MarshalIndent(map[string]any{"accounts": statuses}, "", "  ")
 		return jsonResponse(http.StatusOK, body)
-	case req.Method == http.MethodGet && req.Path == base+"/page":
+	case req.Method == http.MethodGet && isPluginPagePath(req.Path, base):
 		resp := pluginapi.ManagementResponse{StatusCode: http.StatusOK, Body: pageHTML}
 		resp.Headers = http.Header{}
 		resp.Headers.Set("Content-Type", "text/html; charset=utf-8")
+		resp.Headers.Set("Cache-Control", "no-store")
 		return resp
 	default:
 		return jsonResponse(http.StatusNotFound, []byte(`{"error":"not found"}`))
 	}
+}
+
+// isPluginPagePath matches both the direct management path and the GUI
+// resource-proxy form (/v0/resource/plugins/<n>/<id>/page).
+func isPluginPagePath(path, base string) bool {
+	if path == base+"/page" {
+		return true
+	}
+	trimmed := strings.TrimRight(path, "/")
+	return strings.Contains(trimmed, "/v0/resource/plugins/") &&
+		strings.HasSuffix(trimmed, "/"+pluginID+"/page")
 }
 
 func jsonResponse(status int, body []byte) pluginapi.ManagementResponse {
