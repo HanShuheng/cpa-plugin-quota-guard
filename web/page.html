@@ -90,6 +90,7 @@
 
 * { box-sizing: border-box; }
 html, body { background: var(--bg-secondary); }
+#app { max-width: 980px; }
 body {
   margin: 0; padding: 20px 20px 28px;
   font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -205,6 +206,7 @@ input[type="password"], input[type="text"] {
 .event-time { color: var(--text-tertiary); font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
 .event-type .badge { font-size: 11.5px; padding: 1px 8px; }
 .event-detail { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card { overflow-wrap: anywhere; }
 
 .toast {
   position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(8px);
@@ -220,21 +222,23 @@ input[type="password"], input[type="text"] {
 .settings-card[open] > summary::before { transform: rotate(90deg); }
 .settings-card[open] > summary { margin-bottom: 14px; }
 .settings-card > summary .card-title { margin: 0; }
-.hint { font-size: 12px; color: var(--text-tertiary); margin: 4px 0 0; }
+.hint { font-size: 12px; color: var(--text-tertiary); margin: 4px 0 0; max-width: 720px; line-height: 1.7; }
 .settings-note { margin: -8px 0 14px; }
 form fieldset { border: 1px solid var(--border-color); border-radius: 10px; padding: 14px 16px 16px; margin: 0 0 14px; background: color-mix(in srgb, var(--bg-secondary) 50%, transparent); }
+#settings { max-width: none; }
 form legend { font-weight: 650; font-size: 13px; padding: 0 6px; color: var(--text-secondary); }
 .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 form label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--text-secondary); min-width: 0; }
 form input[type="number"], form input[type="text"] { width: 100%; font: inherit; padding: 6px 9px; border-radius: 7px; border: 1px solid var(--border-primary); background: var(--bg-secondary); color: var(--text-primary); }
 .checks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
 label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13px; color: var(--text-primary); }
-.account-rule { display: grid; grid-template-columns: minmax(140px, 1.4fr) 90px 90px 32px; gap: 8px; align-items: end; }
-.account-rule.compact { grid-template-columns: minmax(140px, 1fr) 32px; }
-.rule-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+.account-rule { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(110px, 130px) minmax(110px, 130px) 36px; gap: 10px; align-items: end; max-width: 680px; }
+.account-rule.compact { grid-template-columns: minmax(220px, 1fr) 36px; max-width: 480px; }
+.account-rule label > span, .account-rule label > .r-match-slot { display: block; }
+.rule-rows { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
 .btn-ghost { background: transparent; color: var(--text-secondary); }
 .btn-ghost:hover { background: var(--bg-hover); }
-.btn-danger { background: transparent; color: var(--warning-text); border-color: transparent; padding: 6px 9px; }
+.btn-danger { background: transparent; color: var(--warning-text); border-color: transparent; padding: 8px 11px; font-size: 14px; }
 .btn-danger:hover { background: var(--warning-bg); }
 .btn-sm { padding: 4px 10px; font-size: 12.5px; }
 .save-row { display: flex; align-items: center; gap: 10px; }
@@ -583,6 +587,7 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
     var ex = $("exclude-rows");
     ex.innerHTML = "";
     (cfg.exclude || []).forEach(function (v) { ex.appendChild(excludeRow(v)); });
+    syncExcludeVisibility();
   }
 
   function collectSettings() {
@@ -628,6 +633,11 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
       return res.json().catch(function () { return {}; });
     });
   }
+
+  function syncExcludeVisibility() {
+    $("exclude-fieldset").style.display = $("settings").elements["protect-all-codex"].checked ? "" : "none";
+  }
+  $("settings").elements["protect-all-codex"].addEventListener("change", syncExcludeVisibility);
 
   $("add-rule").addEventListener("click", function () { $("rule-rows").appendChild(ruleRow({})); });
   $("add-exclude").addEventListener("click", function () { $("exclude-rows").appendChild(excludeRow("")); });
