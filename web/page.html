@@ -213,6 +213,32 @@ input[type="password"], input[type="text"] {
   opacity: 0; pointer-events: none; transition: opacity 200ms ease, transform 200ms ease;
 }
 .toast.show { opacity: 0.96; transform: translateX(-50%) translateY(0); }
+/* Settings */
+.settings-card > summary { display: flex; align-items: center; gap: 8px; margin: 0; list-style: none; color: var(--text-primary); font-size: inherit; cursor: pointer; }
+.settings-card > summary::-webkit-details-marker { display: none; }
+.settings-card > summary::before { content: "›"; width: 12px; color: var(--text-secondary); font-size: 18px; line-height: 1; text-align: center; transition: transform 0.15s ease; }
+.settings-card[open] > summary::before { transform: rotate(90deg); }
+.settings-card[open] > summary { margin-bottom: 14px; }
+.settings-card > summary .card-title { margin: 0; }
+.hint { font-size: 12px; color: var(--text-tertiary); margin: 4px 0 0; }
+.settings-note { margin: -8px 0 14px; }
+form fieldset { border: 1px solid var(--border-color); border-radius: 10px; padding: 14px 16px 16px; margin: 0 0 14px; background: color-mix(in srgb, var(--bg-secondary) 50%, transparent); }
+form legend { font-weight: 650; font-size: 13px; padding: 0 6px; color: var(--text-secondary); }
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+form label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--text-secondary); min-width: 0; }
+form input[type="number"], form input[type="text"] { width: 100%; font: inherit; padding: 6px 9px; border-radius: 7px; border: 1px solid var(--border-primary); background: var(--bg-secondary); color: var(--text-primary); }
+.checks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13px; color: var(--text-primary); }
+.account-rule { display: grid; grid-template-columns: minmax(140px, 1.4fr) 90px 90px 32px; gap: 8px; align-items: end; }
+.account-rule.compact { grid-template-columns: minmax(140px, 1fr) 32px; }
+.rule-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+.btn-ghost { background: transparent; color: var(--text-secondary); }
+.btn-ghost:hover { background: var(--bg-hover); }
+.btn-danger { background: transparent; color: var(--warning-text); border-color: transparent; padding: 6px 9px; }
+.btn-danger:hover { background: var(--warning-bg); }
+.btn-sm { padding: 4px 10px; font-size: 12.5px; }
+.save-row { display: flex; align-items: center; gap: 10px; }
+
 </style>
 </head>
 <body>
@@ -245,6 +271,39 @@ input[type="password"], input[type="text"] {
     <h2 class="card-title">事件</h2>
     <div id="events" class="events"></div>
   </section>
+
+  <details class="card settings-card">
+    <summary><h2 class="card-title">设置</h2></summary>
+    <p class="hint settings-note">修改后点“保存设置”，写入 CPA 的 config.yaml 并在几秒内生效，无需重启。留空的每账号阈值沿用全局默认。</p>
+    <form id="settings">
+      <fieldset>
+        <legend>守卫</legend>
+        <div class="grid-3">
+          <label><span>轮询间隔（秒）</span><input name="poll-interval-seconds" type="number" min="60" step="30"></label>
+          <label><span>5 小时窗口下限（剩余 %）</span><input name="primary-min-remaining" type="number" min="0" max="100" step="1"></label>
+          <label><span>周窗口下限（剩余 %）</span><input name="secondary-min-remaining" type="number" min="0" max="100" step="1"></label>
+        </div>
+        <div class="checks" style="margin-top:10px">
+          <label class="inline"><input type="checkbox" name="protect-all-codex"><span>保护全部 Codex OAuth 凭证（默认只保护下方列表中的账号）</span></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>受保护账号</legend>
+        <div id="rule-rows" class="rule-rows"></div>
+        <button type="button" id="add-rule" class="btn btn-secondary btn-sm">+ 添加账号</button>
+        <p class="hint">匹配填凭证文件名 / 邮箱的子串，如 mdb25jv772。额度剩余降到下限时禁用该凭证，恢复后自动启用；下限填 0 表示该窗口不设限。</p>
+      </fieldset>
+      <fieldset id="exclude-fieldset">
+        <legend>排除（配合“保护全部”）</legend>
+        <div id="exclude-rows" class="rule-rows"></div>
+        <button type="button" id="add-exclude" class="btn btn-secondary btn-sm">+ 添加排除</button>
+      </fieldset>
+      <div class="save-row">
+        <button type="submit" id="save-settings" class="btn btn-primary">保存设置</button>
+        <span id="settings-state" class="hint"></span>
+      </div>
+    </form>
+  </details>
 </main>
 <div id="toast" class="toast" hidden></div>
 
@@ -424,6 +483,7 @@ input[type="password"], input[type="text"] {
 
   function render(data) {
     $("state").textContent = "运行中";
+    if (data.config) fillSettings(data.config);
     $("meta").textContent = "v" + (data.version || "?") + " · 每 " + ((data.config && data.config["poll-interval-seconds"]) || 300) + " 秒轮询 · " + new Date().toLocaleTimeString();
     renderAccounts(data.accounts || []);
     renderEvents(data.events || []);
@@ -434,6 +494,112 @@ input[type="password"], input[type="text"] {
       if (e.message !== "unauthorized") toast("加载失败：" + e.message);
     });
   }
+
+
+  // ---------- 设置 ----------
+  var CONFIG_API = "/v8/management/config/plugins/configs/codex-quota-guard";
+
+  function ruleRow(rule) {
+    var div = document.createElement("div");
+    div.className = "account-rule";
+    div.innerHTML =
+      '<label><span>匹配（文件名/邮箱子串）</span><input type="text" class="r-match" placeholder="如 mdb25jv772"></label>' +
+      '<label><span>5h 下限</span><input type="number" class="r-primary" min="0" max="100" placeholder="全局"></label>' +
+      '<label><span>周下限</span><input type="number" class="r-secondary" min="0" max="100" placeholder="全局"></label>' +
+      '<button type="button" class="btn btn-danger" title="删除">✕</button>';
+    div.querySelector(".r-match").value = rule.match || "";
+    div.querySelector(".r-primary").value = rule["primary-min-remaining"] != null ? rule["primary-min-remaining"] : "";
+    div.querySelector(".r-secondary").value = rule["secondary-min-remaining"] != null ? rule["secondary-min-remaining"] : "";
+    div.querySelector("button").addEventListener("click", function () { div.remove(); });
+    return div;
+  }
+
+  function excludeRow(value) {
+    var div = document.createElement("div");
+    div.className = "account-rule compact";
+    div.innerHTML =
+      '<label><span>匹配子串</span><input type="text" class="r-match"></label>' +
+      '<button type="button" class="btn btn-danger" title="删除">✕</button>';
+    div.querySelector(".r-match").value = value || "";
+    div.querySelector("button").addEventListener("click", function () { div.remove(); });
+    return div;
+  }
+
+  function fillSettings(cfg) {
+    var f = $("settings");
+    f.elements["poll-interval-seconds"].value = cfg["poll-interval-seconds"] != null ? cfg["poll-interval-seconds"] : 300;
+    f.elements["primary-min-remaining"].value = cfg["primary-min-remaining"] != null ? cfg["primary-min-remaining"] : 10;
+    f.elements["secondary-min-remaining"].value = cfg["secondary-min-remaining"] != null ? cfg["secondary-min-remaining"] : 5;
+    f.elements["protect-all-codex"].checked = !!cfg["protect-all-codex"];
+    var rows = $("rule-rows");
+    rows.innerHTML = "";
+    (cfg.accounts || []).forEach(function (rule) { rows.appendChild(ruleRow(rule)); });
+    var ex = $("exclude-rows");
+    ex.innerHTML = "";
+    (cfg.exclude || []).forEach(function (v) { ex.appendChild(excludeRow(v)); });
+  }
+
+  function collectSettings() {
+    var f = $("settings");
+    var num = function (v) { return v === "" || v == null ? null : Number(v); };
+    var accounts = [];
+    [].forEach.call($("rule-rows").children, function (row) {
+      var match = row.querySelector(".r-match").value.trim();
+      if (!match) return;
+      var rule = { match: match };
+      var p = num(row.querySelector(".r-primary").value);
+      var s = num(row.querySelector(".r-secondary").value);
+      if (p != null && !isNaN(p)) rule["primary-min-remaining"] = p;
+      if (s != null && !isNaN(s)) rule["secondary-min-remaining"] = s;
+      accounts.push(rule);
+    });
+    var exclude = [];
+    [].forEach.call($("exclude-rows").children, function (row) {
+      var v = row.querySelector(".r-match").value.trim();
+      if (v) exclude.push(v);
+    });
+    return {
+      enabled: true,
+      "poll-interval-seconds": Math.max(60, Number(f.elements["poll-interval-seconds"].value) || 300),
+      "primary-min-remaining": Math.min(100, Math.max(0, Number(f.elements["primary-min-remaining"].value) || 0)),
+      "secondary-min-remaining": Math.min(100, Math.max(0, Number(f.elements["secondary-min-remaining"].value) || 0)),
+      "protect-all-codex": f.elements["protect-all-codex"].checked,
+      accounts: accounts,
+      exclude: exclude
+    };
+  }
+
+  function patchConfig(body) {
+    return fetch(CONFIG_API, {
+      method: "PATCH",
+      headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (res.status === 401) { askForKey(); throw new Error("unauthorized"); }
+      if (!res.ok) return res.json().catch(function () { return {}; }).then(function (d) {
+        throw new Error(d.error || ("HTTP " + res.status));
+      });
+      return res.json().catch(function () { return {}; });
+    });
+  }
+
+  $("add-rule").addEventListener("click", function () { $("rule-rows").appendChild(ruleRow({})); });
+  $("add-exclude").addEventListener("click", function () { $("exclude-rows").appendChild(excludeRow("")); });
+
+  $("settings").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var btn = $("save-settings");
+    btn.disabled = true;
+    $("settings-state").textContent = "保存中…";
+    patchConfig(collectSettings()).then(function () {
+      $("settings-state").textContent = "已保存，几秒内生效 ✓";
+      toast("设置已保存");
+      load();
+    }).catch(function (e) {
+      $("settings-state").textContent = "";
+      toast("保存失败：" + e.message);
+    }).then(function () { btn.disabled = false; });
+  });
 
   $("check-now").addEventListener("click", function () {
     var btn = this;
