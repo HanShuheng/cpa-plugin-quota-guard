@@ -131,6 +131,9 @@ func (g *Guard) checkOne(cfg Config, entry pluginapi.HostAuthFileEntry) AccountS
 			status.GuardOwned = true
 			status.LastAction = "disabled: " + fmt.Sprintf("5h剩余%.0f%%(下限%.0f%%) 周剩余%.0f%%(下限%.0f%%)",
 				usage.FiveHourRemaining, primaryMin, usage.WeeklyRemaining, secondaryMin)
+			g.mu.Lock()
+			g.recordEvent("disabled", entry.Name, status.LastAction)
+			g.mu.Unlock()
 			g.log("warn", fmt.Sprintf("⛔ 已禁用 %s：%s", entry.Name, status.LastAction))
 		} else {
 			status.LastAction = "disable failed"
@@ -160,6 +163,9 @@ func (g *Guard) checkOne(cfg Config, entry pluginapi.HostAuthFileEntry) AccountS
 		g.mu.Unlock()
 		status.Disabled = false
 		status.LastAction = fmt.Sprintf("re-enabled: 5h剩余%.0f%% 周剩余%.0f%%", usage.FiveHourRemaining, usage.WeeklyRemaining)
+		g.mu.Lock()
+		g.recordEvent("re-enabled", entry.Name, status.LastAction)
+		g.mu.Unlock()
 		g.log("info", fmt.Sprintf("▶️ 已恢复启用 %s：%s", entry.Name, status.LastAction))
 	} else {
 		status.GuardOwned = true
@@ -227,7 +233,7 @@ func (g *Guard) recoverByResetTime(entry pluginapi.HostAuthFileEntry) {
 	if g.saveDisabled(entry.Name, getResp.JSON, false) {
 		g.mu.Lock()
 		delete(g.state.Accounts, entry.Name)
-		g.persistState()
+		g.recordEvent("reset-recovered", entry.Name, "额度查询持续失败但触底窗口已过重置时间")
 		g.mu.Unlock()
 		g.log("info", fmt.Sprintf("▶️ 额度查询持续失败但触底窗口已过重置时间，恢复启用 %s", entry.Name))
 	}

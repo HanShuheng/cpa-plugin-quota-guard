@@ -76,6 +76,15 @@ type AccountState struct {
 type PersistedState struct {
 	Version  string                  `json:"version"`
 	Accounts map[string]AccountState `json:"accounts"` // keyed by credential file name
+	Events   []GuardEvent            `json:"events,omitempty"`
+}
+
+// GuardEvent is one recorded guard action, shown on the management page.
+type GuardEvent struct {
+	Time   string `json:"time"`
+	Type   string `json:"type"` // disabled / re-enabled / reset-recovered
+	Label  string `json:"label"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // AccountStatus is one credential's latest observation.
@@ -280,6 +289,21 @@ func (g *Guard) persistState() {
 	_ = os.WriteFile(g.statePath(), raw, 0o644)
 }
 
+// recordEvent appends one action to the persisted event log (newest first,
+// capped at 50) and saves the state file.
+func (g *Guard) recordEvent(typ, label, detail string) {
+	g.state.Events = append([]GuardEvent{{
+		Time:   time.Now().Format(time.RFC3339),
+		Type:   typ,
+		Label:  label,
+		Detail: detail,
+	}}, g.state.Events...)
+	if len(g.state.Events) > 50 {
+		g.state.Events = g.state.Events[:50]
+	}
+	g.persistState()
+}
+
 // ---- lifecycle ----
 
 func (g *Guard) Handle(method string, request []byte) (out []byte) {
@@ -432,9 +456,14 @@ func (g *Guard) handleManagement(req pluginapi.ManagementRequest) pluginapi.Mana
 			statuses = append(statuses, s)
 		}
 		g.mu.Unlock()
+		g.mu.Lock()
+		events := append([]GuardEvent(nil), g.state.Events...)
+		g.mu.Unlock()
 		body, _ := json.MarshalIndent(map[string]any{
 			"config":   cfg,
 			"accounts": statuses,
+			"events":   events,
+			"version":  g.version,
 		}, "", "  ")
 		return jsonResponse(http.StatusOK, body)
 	case req.Method == http.MethodPost && req.Path == base+"/check":

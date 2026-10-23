@@ -5,84 +5,248 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Codex Quota Guard</title>
 <style>
-  :root { color-scheme: light dark; }
-  [data-theme="dark"] { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 20px; font: 14px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    background: #f6f7f9; color: #1f2328;
-  }
-  [data-theme="dark"] body { background: #0d1117; color: #e6edf3; }
-  h1 { font-size: 18px; margin: 0 0 4px; }
-  .sub { color: #656d76; font-size: 12.5px; margin-bottom: 18px; }
-  [data-theme="dark"] .sub { color: #8b949e; }
-  .card {
-    background: #fff; border: 1px solid #d0d7de; border-radius: 10px;
-    padding: 14px 16px; margin-bottom: 14px;
-  }
-  [data-theme="dark"] .card { background: #161b22; border-color: #30363d; }
-  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .name { font-weight: 600; font-size: 13.5px; word-break: break-all; }
-  .badge {
-    display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 999px;
-    border: 1px solid transparent; white-space: nowrap;
-  }
-  .b-green { background: #dafbe1; color: #116329; }
-  .b-red   { background: #ffebe9; color: #cf222e; }
-  .b-gray  { background: #eaeef2; color: #57606a; }
-  .b-blue  { background: #ddf4ff; color: #0969da; }
-  [data-theme="dark"] .b-green { background: #0f2417; color: #56d364; }
-  [data-theme="dark"] .b-red   { background: #2d0d0f; color: #f85149; }
-  [data-theme="dark"] .b-gray  { background: #21262d; color: #8b949e; }
-  [data-theme="dark"] .b-blue  { background: #0c2d5b; color: #58a6ff; }
-  .bar { height: 8px; border-radius: 4px; background: #eaeef2; overflow: hidden; flex: 1; min-width: 90px; }
-  [data-theme="dark"] .bar { background: #21262d; }
-  .bar > i { display: block; height: 100%; border-radius: 4px; background: #2da44e; }
-  .bar.warn > i { background: #bf8700; }
-  .bar.low  > i { background: #cf222e; }
-  .meter { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; color: #57606a; }
-  [data-theme="dark"] .meter { color: #8b949e; }
-  .meter b { min-width: 44px; }
-  .detail { font-size: 12px; color: #656d76; margin-top: 6px; word-break: break-all; }
-  [data-theme="dark"] .detail { color: #8b949e; }
-  button {
-    font: inherit; padding: 5px 14px; border-radius: 7px; border: 1px solid #d0d7de;
-    background: #f6f8fa; cursor: pointer;
-  }
-  [data-theme="dark"] button { background: #21262d; border-color: #30363d; color: #e6edf3; }
-  button:hover { background: #eef1f4; }
-  [data-theme="dark"] button:hover { background: #30363d; }
-  input[type=password] {
-    font: inherit; padding: 5px 10px; border-radius: 7px; border: 1px solid #d0d7de; min-width: 220px;
-    background: #fff; color: inherit;
-  }
-  [data-theme="dark"] input[type=password] { background: #0d1117; border-color: #30363d; }
-  .err { color: #cf222e; font-size: 12.5px; }
-  #refresh-info { font-size: 12px; color: #656d76; }
+/* Design tokens mirror the CPA Management Center (same as Lamplighter):
+   warm-grey paper surfaces, light / white / dark themes via data-theme. */
+:root {
+  color-scheme: light;
+  --bg-secondary: #faf9f5;
+  --bg-primary: #f0eee8;
+  --bg-tertiary: #e9e6df;
+  --bg-hover: var(--bg-tertiary);
+  --text-primary: #2d2a26;
+  --text-secondary: #6d6760;
+  --text-tertiary: #a29c95;
+  --text-quaternary: #c0bab3;
+  --border-color: #e3e1db;
+  --border-primary: #d5d2cb;
+  --border-hover: #cecac4;
+  --primary-color: #8b8680;
+  --primary-hover: #7f7a74;
+  --primary-contrast: #ffffff;
+  --success-color: #10b981;
+  --quota-medium-color: #e0aa14;
+  --error-color: #c65746;
+  --warning-bg: rgba(198, 87, 70, 0.12);
+  --warning-border: rgba(198, 87, 70, 0.35);
+  --warning-text: #c65746;
+  --success-badge-bg: #d1fae5;
+  --success-badge-text: #065f46;
+  --success-badge-border: #6ee7b7;
+  --failure-badge-bg: rgba(198, 87, 70, 0.14);
+  --failure-badge-text: #8a3a30;
+  --failure-badge-border: rgba(198, 87, 70, 0.35);
+  --amber-bg: rgba(217, 119, 6, 0.10);
+  --amber-text: #92400e;
+  --amber-border: rgba(217, 119, 6, 0.30);
+  --viz-success: #10b981;
+  --viz-failure: #c65746;
+  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.08);
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --type-codex-bg: #eae7ff;
+  --type-codex-text: #3538d4;
+}
+:root[data-theme="white"] {
+  --bg-secondary: #ffffff;
+  --bg-primary: #ffffff;
+  --bg-tertiary: #f6f6f6;
+  --border-color: #e5e5e5;
+  --border-primary: #d9d9d9;
+  --border-hover: #cccccc;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-secondary: #151412;
+  --bg-primary: #1d1b18;
+  --bg-tertiary: #262320;
+  --bg-hover: #2e2a26;
+  --text-primary: #f6f4f1;
+  --text-secondary: #c9c3bb;
+  --text-tertiary: #9c958d;
+  --text-quaternary: #6f6962;
+  --border-color: #3a3530;
+  --border-primary: #4a453f;
+  --border-hover: #5a544d;
+  --primary-hover: #9a948e;
+  --quota-medium-color: #ffd862;
+  --warning-bg: rgba(198, 87, 70, 0.22);
+  --warning-border: rgba(198, 87, 70, 0.45);
+  --warning-text: #f1b0a6;
+  --success-badge-bg: rgba(6, 78, 59, 0.3);
+  --success-badge-text: #6ee7b7;
+  --success-badge-border: #059669;
+  --failure-badge-bg: rgba(198, 87, 70, 0.24);
+  --failure-badge-text: #f1b0a6;
+  --failure-badge-border: rgba(198, 87, 70, 0.5);
+  --amber-bg: rgba(217, 119, 6, 0.18);
+  --amber-text: #fcd34d;
+  --amber-border: rgba(217, 119, 6, 0.45);
+  --viz-success: #0fae78;
+  --viz-failure: #cf4b3a;
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.3);
+  --type-codex-bg: #262395;
+  --type-codex-text: #b5b0ff;
+}
+
+* { box-sizing: border-box; }
+html, body { background: var(--bg-secondary); }
+body {
+  margin: 0; padding: 20px 20px 28px;
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--text-primary);
+}
+header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+h1 { font-size: 17px; font-weight: 700; margin: 0; display: flex; align-items: baseline; gap: 8px; }
+h1 .sub { font-size: 12.5px; font-weight: 500; color: var(--text-tertiary); }
+h1 a { color: inherit; text-decoration: none; }
+h1 a:hover { color: var(--primary-hover); }
+.state { font-size: 12px; color: var(--text-tertiary); }
+.meta { font-size: 12px; color: var(--text-quaternary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+.card-title, .block-title { font-size: 15px; font-weight: 650; margin: 0 0 14px; }
+.block { margin-bottom: 18px; }
+.block-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.block-head .block-title { margin: 0; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid transparent; border-radius: 8px; padding: 7px 12px;
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  background: var(--bg-secondary); color: var(--text-primary);
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.btn-primary { background: var(--primary-color); border-color: var(--primary-color); color: var(--primary-contrast); }
+.btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.btn-secondary { background: var(--bg-tertiary); border-color: var(--border-color); }
+.btn-secondary:hover { background: var(--bg-hover); border-color: var(--border-hover); }
+.btn[disabled] { opacity: 0.55; cursor: default; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 9999px;
+  font-size: 12px; font-weight: 600; border: 1px solid transparent; white-space: nowrap;
+}
+.badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge-success { background: var(--success-badge-bg); color: var(--success-badge-text); border-color: var(--success-badge-border); }
+.badge-failure { background: var(--failure-badge-bg); color: var(--failure-badge-text); border-color: var(--failure-badge-border); }
+.badge-warning { background: var(--amber-bg); color: var(--amber-text); border-color: var(--amber-border); }
+.badge-muted { background: var(--bg-tertiary); color: var(--text-secondary); border-color: var(--border-color); }
+
+/* Key section */
+#key-form { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+input[type="password"], input[type="text"] {
+  font: inherit; padding: 7px 10px; border-radius: 8px; min-width: 230px;
+  border: 1px solid var(--border-primary); background: var(--bg-secondary); color: var(--text-primary);
+}
+.error-text { color: var(--warning-text); font-size: 12.5px; }
+.secondary { color: var(--text-secondary); font-size: 13px; margin: 4px 0 0; }
+
+/* Quota cards */
+.accounts { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.card.account {
+  margin: 0; padding: 15px 16px; border-radius: 14px; display: flex; flex-direction: column; gap: 12px;
+  background: color-mix(in srgb, var(--bg-primary) 82%, transparent); box-shadow: none;
+  transition: transform 200ms var(--ease-out-strong), border-color 200ms var(--ease-out-strong), box-shadow 200ms var(--ease-out-strong);
+}
+@media (hover: hover) and (pointer: fine) {
+  .card.account:hover { transform: translateY(-2px); border-color: var(--border-hover); box-shadow: 0 12px 26px -14px rgb(0 0 0 / 0.16); }
+}
+.account-head { display: flex; align-items: center; gap: 9px; min-width: 0; flex-wrap: wrap; }
+.type-badge {
+  flex: none; padding: 2px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 650;
+  background: var(--type-codex-bg); color: var(--type-codex-text);
+}
+.account-email {
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.account-badges { margin-left: auto; display: flex; gap: 6px; }
+.quota-row { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.quota-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.quota-name { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+.quota-meta {
+  display: inline-flex; align-items: baseline; gap: 7px; flex-shrink: 0;
+  font-family: var(--font-mono); font-size: 11.5px; font-variant-numeric: tabular-nums;
+}
+.quota-percent { font-weight: 650; font-size: 12.5px; color: var(--text-primary); }
+.quota-reset { color: var(--text-tertiary); }
+.quota-countdown { color: var(--text-secondary); }
+.quota-countdown::before { content: "·"; margin-right: 6px; color: var(--text-quaternary); }
+.quota-countdown.soon { color: var(--warning-text); font-weight: 600; }
+.quota-bar { height: 6px; border-radius: 9999px; background: color-mix(in srgb, var(--text-primary) 8%, transparent); overflow: hidden; }
+.quota-fill {
+  display: block; height: 100%; border-radius: 9999px; transform-origin: left center;
+  transition: width 360ms var(--ease-out-strong);
+  animation: meter-fill 480ms var(--ease-out-strong) both;
+  animation-delay: calc(var(--meter-index, 0) * 40ms);
+}
+@keyframes meter-fill { from { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .quota-fill { animation: none; } .card.account { transition: none; } }
+.fill-high { background: var(--viz-success); }
+.fill-medium { background: var(--quota-medium-color); }
+.fill-low { background: var(--viz-failure); }
+.cell-note { margin-top: 2px; font-size: 11.5px; color: var(--text-tertiary); max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+.empty { color: var(--text-tertiary); font-size: 13px; margin: 6px 0; }
+
+/* Events */
+.events { display: flex; flex-direction: column; }
+.event-row {
+  display: grid; grid-template-columns: 118px 110px minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 8px 0; border-bottom: 1px solid var(--border-color); font-size: 13px;
+}
+.event-row:last-child { border-bottom: none; }
+.event-time { color: var(--text-tertiary); font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.event-type .badge { font-size: 11.5px; padding: 1px 8px; }
+.event-detail { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(8px);
+  background: var(--text-primary); color: var(--bg-secondary);
+  padding: 8px 16px; border-radius: 9999px; font-size: 13px; font-weight: 600;
+  opacity: 0; pointer-events: none; transition: opacity 200ms ease, transform 200ms ease;
+}
+.toast.show { opacity: 0.96; transform: translateX(-50%) translateY(0); }
 </style>
 </head>
 <body>
-  <h1>Codex Quota Guard</h1>
-  <div class="sub">额度保底守卫 — 窗口触底自动禁用，恢复后自动启用（直查上游实时额度）</div>
+<div id="key-section" class="card" hidden>
+  <h2 class="card-title">需要管理密钥</h2>
+  <p class="secondary">在管理中心登录时勾选“记住密码”，此页面会直接使用该密钥；否则请在这里输入，密钥只保存在当前标签页。</p>
+  <form id="key-form">
+    <input id="key-input" type="password" autocomplete="off" placeholder="CPA 管理密钥">
+    <button class="btn btn-primary" type="submit">确定</button>
+  </form>
+  <p id="key-error" class="error-text" hidden></p>
+</div>
 
-  <div id="key-section" class="card" hidden>
-    <div class="row">
-      <span>需要管理密钥：</span>
-      <input type="password" id="key-input" placeholder="Management Key">
-      <button id="key-save">保存</button>
-    </div>
-    <div class="detail">在管理中心登录时勾选"记住密码"可直接使用；否则请输入密钥（仅保存在当前标签页）。</div>
-    <div class="err" id="key-err" hidden></div>
-  </div>
+<main id="app" hidden>
+  <header>
+    <h1><a class="home" href="https://github.com/HanShuheng/cpa-plugin-quota-guard" target="_blank" rel="noopener" title="在 GitHub 上查看">Codex Quota Guard</a><span class="sub">额度保底守卫</span></h1>
+    <span id="state" class="state"></span>
+    <span id="meta" class="meta"></span>
+  </header>
 
-  <div id="app" hidden>
-    <div class="row" style="margin-bottom:14px">
-      <button id="check-now">立即检查</button>
-      <span id="refresh-info"></span>
-      <span class="err" id="load-err" hidden></span>
+  <section class="block">
+    <div class="block-head">
+      <h2 class="block-title">额度</h2>
+      <button id="check-now" class="btn btn-secondary" type="button">立即检查</button>
     </div>
-    <div id="accounts"></div>
-  </div>
+    <div id="accounts" class="accounts"></div>
+  </section>
+
+  <section class="card">
+    <h2 class="card-title">事件</h2>
+    <div id="events" class="events"></div>
+  </section>
+</main>
+<div id="toast" class="toast" hidden></div>
 
 <script>
 (function () {
@@ -90,8 +254,10 @@
   var API = "/v0/management/codex-quota-guard";
   var KEY_STORE = "quota-guard-management-key";
   var key = "";
+  var timer = null;
 
-  // 主题跟随管理中心 iframe
+  function $(id) { return document.getElementById(id); }
+
   function applyTheme() {
     var theme = "light";
     try {
@@ -105,12 +271,10 @@
         else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) theme = "dark";
       }
     } catch (e) {}
-    if (theme === "white") theme = "light";
     if (theme === "light") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", theme);
   }
 
-  // 管理中心"记住密码"时密钥存在 localStorage（可带 XOR 混淆）
   function centerKey() {
     try {
       var raw = localStorage.getItem("cli-proxy-auth");
@@ -129,6 +293,15 @@
     } catch (e) { return ""; }
   }
 
+  function toast(text) {
+    var t = $("toast");
+    t.textContent = text;
+    t.hidden = false;
+    requestAnimationFrame(function () { t.classList.add("show"); });
+    clearTimeout(t._hide);
+    t._hide = setTimeout(function () { t.classList.remove("show"); }, 1800);
+  }
+
   function api(method, path) {
     var opts = { method: method, headers: { "Authorization": "Bearer " + key, "Accept": "application/json" } };
     return fetch(path, opts).then(function (res) {
@@ -143,8 +316,9 @@
   function askForKey() {
     key = "";
     sessionStorage.removeItem(KEY_STORE);
-    document.getElementById("app").hidden = true;
-    document.getElementById("key-section").hidden = false;
+    if (timer) clearInterval(timer);
+    $("app").hidden = true;
+    $("key-section").hidden = false;
   }
 
   function esc(s) {
@@ -153,7 +327,7 @@
     });
   }
 
-  function fmtTime(s) {
+  function fmtDateTime(s) {
     if (!s) return "—";
     var d = new Date(s);
     if (isNaN(d)) return esc(s);
@@ -161,81 +335,134 @@
     return pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
   }
 
-  function meter(label, pct, reset) {
-    var cls = pct <= 10 ? "low" : (pct <= 30 ? "warn" : "");
-    var width = Math.max(0, Math.min(100, pct));
-    return '<div class="meter"><b>' + label + " " + Math.round(pct) + '%</b>' +
-      '<span class="bar ' + cls + '"><i style="width:' + width + '%"></i></span>' +
-      '<span>重置 ' + esc(fmtTime(reset)) + "</span></div>";
+  function fmtIn(s) {
+    if (!s) return "";
+    var d = new Date(s);
+    if (isNaN(d)) return "";
+    var ms = d - new Date();
+    if (ms <= 0) return "即将重置";
+    var mins = Math.round(ms / 60000);
+    if (mins < 60) return mins + " 分钟后重置";
+    var hours = Math.floor(mins / 60), m = mins % 60;
+    if (hours < 48) return hours + " 小时" + (m ? " " + m + " 分" : "") + "后重置";
+    return Math.floor(hours / 24) + " 天 " + (hours % 24) + " 小时后重置";
   }
 
-  function badge(text, cls) { return '<span class="badge ' + cls + '">' + esc(text) + "</span>"; }
+  function badge(kind, text, dot) {
+    return '<span class="badge badge-' + kind + '">' + (dot ? '<span class="badge-dot"></span>' : "") + esc(text) + "</span>";
+  }
 
-  function render(data) {
-    var list = data.accounts || [];
-    var box = document.getElementById("accounts");
+  function shortName(name) {
+    // codex-2419d47b-email@x-plus.json → email@x
+    var m = String(name || "").match(/codex-[0-9a-f]+-(.+?)(?:-(plus|pro|free|business))?\.json$/i);
+    return esc(m ? m[1] : name);
+  }
+
+  function meter(label, pct, reset, index) {
+    var cls = pct > 50 ? "fill-high" : (pct > 20 ? "fill-medium" : "fill-low");
+    var width = Math.max(0, Math.min(100, pct));
+    var soon = reset && (new Date(reset) - new Date()) < 3600000;
+    return '<div class="quota-row"><div class="quota-row-head">' +
+      '<span class="quota-name">' + esc(label) + "</span>" +
+      '<span class="quota-meta"><span class="quota-percent">' + Math.round(pct) + '%</span>' +
+      '<span class="quota-reset">重置 ' + esc(fmtDateTime(reset)) + "</span>" +
+      '<span class="quota-countdown' + (soon ? " soon" : "") + '">' + esc(fmtIn(reset)) + "</span></span></div>" +
+      '<span class="quota-bar"><i class="quota-fill ' + cls + '" style="width:' + width + '%;--meter-index:' + index + '"></i></span></div>';
+  }
+
+  function renderAccounts(list) {
+    var box = $("accounts");
     box.innerHTML = "";
     if (!list.length) {
-      box.innerHTML = '<div class="card">尚未发现 Codex OAuth 凭证。等待下一轮检查，或点"立即检查"。</div>';
+      box.innerHTML = '<p class="empty">尚未发现 Codex OAuth 凭证，等待下一轮检查或点“立即检查”。</p>';
       return;
     }
+    var idx = 0;
     list.forEach(function (a) {
-      var badges = a.protected ? badge("已保护", "b-blue") : badge("未保护", "b-gray");
-      if (a.disabled) badges += " " + badge(a.guard_owned ? "守卫已禁用" : "手动禁用", "b-red");
-      else badges += " " + badge("启用中", "b-green");
-      var html = '<div class="card"><div class="row"><span class="name">' + esc(a.name) + "</span>" + badges + "</div>";
-      if (a.fetch_error) html += '<div class="detail err">额度查询失败：' + esc(a.fetch_error) + "</div>";
-      else {
-        html += meter("5小时窗口", a.five_hour_remaining_percent, a.five_hour_reset);
-        html += meter("周窗口", a.weekly_remaining_percent, a.weekly_reset);
+      var badges = a.protected ? badge("warning", "已保护") : badge("muted", "未保护");
+      badges += a.disabled
+        ? badge(a.guard_owned ? "failure" : "muted", a.guard_owned ? "守卫已禁用" : "手动禁用", true)
+        : badge("success", "启用中", true);
+      var html = '<div class="card account">' +
+        '<div class="account-head"><span class="type-badge">Codex</span>' +
+        '<span class="account-email" title="' + esc(a.name) + '">' + shortName(a.name) + "</span>" +
+        '<span class="account-badges">' + badges + "</span></div>";
+      if (a.fetch_error) {
+        html += '<div class="error-text">额度查询失败：' + esc(a.fetch_error) + "</div>";
+      } else {
+        html += meter("5 小时窗口", a.five_hour_remaining_percent, a.five_hour_reset, idx++);
+        html += meter("7 天窗口", a.weekly_remaining_percent, a.weekly_reset, idx++);
       }
-      if (a.last_action) html += '<div class="detail">最近动作：' + esc(a.last_action) + "</div>";
-      html += '<div class="detail">观测于 ' + esc(fmtTime(a.observed_at)) + "</div></div>";
+      if (a.last_action) html += '<div class="cell-note" title="' + esc(a.last_action) + '">最近动作：' + esc(a.last_action) + "</div>";
+      html += '<div class="cell-note">观测于 ' + esc(fmtDateTime(a.observed_at)) + "</div></div>";
       box.insertAdjacentHTML("beforeend", html);
     });
   }
 
-  function load() {
-    api("GET", API + "/status").then(function (data) {
-      document.getElementById("load-err").hidden = true;
-      document.getElementById("refresh-info").textContent = "已于 " + new Date().toLocaleTimeString() + " 刷新";
-      render(data);
-    }).catch(function (e) {
-      if (e.message !== "unauthorized") {
-        var el = document.getElementById("load-err");
-        el.textContent = "加载失败：" + e.message;
-        el.hidden = false;
-      }
+  var EVENT_LABELS = {
+    "disabled": ["failure", "禁用"],
+    "re-enabled": ["success", "恢复启用"],
+    "reset-recovered": ["success", "重置恢复"]
+  };
+
+  function renderEvents(list) {
+    var box = $("events");
+    box.innerHTML = "";
+    if (!list || !list.length) {
+      box.innerHTML = '<p class="empty">暂无事件。额度触底或恢复时守卫的动作会记录在这里。</p>';
+      return;
+    }
+    list.forEach(function (ev) {
+      var meta = EVENT_LABELS[ev.type] || ["muted", ev.type];
+      box.insertAdjacentHTML("beforeend",
+        '<div class="event-row"><span class="event-time">' + esc(fmtDateTime(ev.time)) + "</span>" +
+        '<span class="event-type">' + badge(meta[0], meta[1]) + "</span>" +
+        '<span class="event-detail" title="' + esc(ev.label + " " + (ev.detail || "")) + '">' + shortName(ev.label) +
+        (ev.detail ? " · " + esc(ev.detail) : "") + "</span></div>");
     });
   }
 
-  document.getElementById("check-now").addEventListener("click", function () {
+  function render(data) {
+    $("state").textContent = "运行中";
+    $("meta").textContent = "v" + (data.version || "?") + " · 每 " + ((data.config && data.config["poll-interval-seconds"]) || 300) + " 秒轮询 · " + new Date().toLocaleTimeString();
+    renderAccounts(data.accounts || []);
+    renderEvents(data.events || []);
+  }
+
+  function load() {
+    api("GET", API + "/status").then(render).catch(function (e) {
+      if (e.message !== "unauthorized") toast("加载失败：" + e.message);
+    });
+  }
+
+  $("check-now").addEventListener("click", function () {
     var btn = this;
     btn.disabled = true;
-    api("POST", API + "/check").then(render).catch(function () {}).then(function () {
-      btn.disabled = false;
-      document.getElementById("refresh-info").textContent = "已于 " + new Date().toLocaleTimeString() + " 手动检查";
-    });
+    api("POST", API + "/check").then(function (data) {
+      render(data);
+      toast("检查完成");
+    }).catch(function () {}).then(function () { btn.disabled = false; });
   });
 
-  document.getElementById("key-save").addEventListener("click", function () {
-    key = document.getElementById("key-input").value.trim();
+  $("key-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    key = $("key-input").value.trim();
     if (!key) return;
     sessionStorage.setItem(KEY_STORE, key);
-    document.getElementById("key-section").hidden = true;
-    document.getElementById("app").hidden = false;
-    load();
+    $("key-section").hidden = true;
+    $("app").hidden = false;
+    start();
   });
+
+  function start() {
+    load();
+    if (timer) clearInterval(timer);
+    timer = setInterval(load, 10000);
+  }
 
   applyTheme();
   key = sessionStorage.getItem(KEY_STORE) || centerKey();
-  if (key) {
-    document.getElementById("app").hidden = false;
-    load();
-    setInterval(load, 10000);
-  } else {
-    askForKey();
-  }
+  if (key) { $("app").hidden = false; start(); } else { askForKey(); }
 })();
 </script>
 </body>
