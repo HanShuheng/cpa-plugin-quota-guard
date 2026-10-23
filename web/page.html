@@ -291,7 +291,7 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
         <legend>受保护账号</legend>
         <div id="rule-rows" class="rule-rows"></div>
         <button type="button" id="add-rule" class="btn btn-secondary btn-sm">+ 添加账号</button>
-        <p class="hint">匹配填凭证文件名 / 邮箱的子串，如 mdb25jv772。额度剩余降到下限时禁用该凭证，恢复后自动启用；下限填 0 表示该窗口不设限。</p>
+        <p class="hint">从下拉框选择要保护的凭证。额度剩余降到下限时自动禁用该凭证，恢复后自动启用；下限留空沿用全局，填 0 表示该窗口不设限。</p>
       </fieldset>
       <fieldset id="exclude-fieldset">
         <legend>排除（配合“保护全部”）</legend>
@@ -483,6 +483,7 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
 
   function render(data) {
     $("state").textContent = "运行中";
+    discoveredAccounts = data.accounts || [];
     if (data.config) fillSettings(data.config);
     $("meta").textContent = "v" + (data.version || "?") + " · 每 " + ((data.config && data.config["poll-interval-seconds"]) || 300) + " 秒轮询 · " + new Date().toLocaleTimeString();
     renderAccounts(data.accounts || []);
@@ -498,16 +499,61 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
 
   // ---------- 设置 ----------
   var CONFIG_API = "/v8/management/config/plugins/configs/codex-quota-guard";
+  var discoveredAccounts = []; // /status 返回的已发现凭证，供下拉选择
+
+  // matchValue 从凭证文件名提取邮箱段作为匹配值：重新登录后文件名前缀哈希会变，
+  // 邮箱不变，比完整文件名更稳。提不出邮箱时退回完整文件名。
+  function matchValue(name) {
+    var m = String(name || "").match(/codex-[0-9a-f]+-(.+?)(?:-(plus|pro|free|business))?\.json$/i);
+    return m && m[1] ? m[1] : name;
+  }
+
+  // matchSelect 生成凭证下拉框；已配置但不在已发现列表里的值保留为额外选项。
+  function matchSelect(current, cls) {
+    var seen = {}, options = [];
+    discoveredAccounts.forEach(function (a) {
+      var v = matchValue(a.name);
+      if (!v || seen[v]) return;
+      seen[v] = true;
+      options.push({ value: v, label: shortName(a.name) });
+    });
+    var select = document.createElement("select");
+    select.className = cls;
+    select.style.cssText = "font:inherit;padding:6px 9px;border-radius:7px;border:1px solid var(--border-primary);background:var(--bg-secondary);color:var(--text-primary);width:100%";
+    if (!options.length) {
+      var empty = document.createElement("option");
+      empty.value = current || "";
+      empty.textContent = current ? "当前: " + current : "（尚未发现凭证，先点立即检查）";
+      select.appendChild(empty);
+      select.disabled = !current;
+      return select;
+    }
+    if (current && !seen[current]) {
+      var extra = document.createElement("option");
+      extra.value = current;
+      extra.textContent = "当前: " + current;
+      select.appendChild(extra);
+    }
+    options.forEach(function (opt) {
+      var o = document.createElement("option");
+      o.value = opt.value;
+      o.textContent = opt.label;
+      select.appendChild(o);
+    });
+    select.value = (current && (seen[current] || options.some(function (x) { return x.value === current; }))) ? current : (options[0].value === current ? current : current || options[0].value);
+    if (current) select.value = current;
+    return select;
+  }
 
   function ruleRow(rule) {
     var div = document.createElement("div");
     div.className = "account-rule";
     div.innerHTML =
-      '<label><span>匹配（文件名/邮箱子串）</span><input type="text" class="r-match" placeholder="如 mdb25jv772"></label>' +
+      '<label><span>凭证</span><span class="r-match-slot"></span></label>' +
       '<label><span>5h 下限</span><input type="number" class="r-primary" min="0" max="100" placeholder="全局"></label>' +
       '<label><span>周下限</span><input type="number" class="r-secondary" min="0" max="100" placeholder="全局"></label>' +
       '<button type="button" class="btn btn-danger" title="删除">✕</button>';
-    div.querySelector(".r-match").value = rule.match || "";
+    div.querySelector(".r-match-slot").appendChild(matchSelect(rule.match || "", "r-match"));
     div.querySelector(".r-primary").value = rule["primary-min-remaining"] != null ? rule["primary-min-remaining"] : "";
     div.querySelector(".r-secondary").value = rule["secondary-min-remaining"] != null ? rule["secondary-min-remaining"] : "";
     div.querySelector("button").addEventListener("click", function () { div.remove(); });
@@ -518,9 +564,9 @@ label.inline { flex-direction: row; align-items: center; gap: 7px; font-size: 13
     var div = document.createElement("div");
     div.className = "account-rule compact";
     div.innerHTML =
-      '<label><span>匹配子串</span><input type="text" class="r-match"></label>' +
+      '<label><span>凭证</span><span class="r-match-slot"></span></label>' +
       '<button type="button" class="btn btn-danger" title="删除">✕</button>';
-    div.querySelector(".r-match").value = value || "";
+    div.querySelector(".r-match-slot").appendChild(matchSelect(value || "", "r-match"));
     div.querySelector("button").addEventListener("click", function () { div.remove(); });
     return div;
   }
