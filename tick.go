@@ -416,7 +416,7 @@ func (g *Guard) credentialJSON(authIndex string) json.RawMessage {
 	return getResp.JSON
 }
 
-// obtainUsage 决定一次额度读数的来源（借鉴 Lamplighter 的防风险策略）：
+// obtainUsage 决定一次额度读数的来源（防频繁三层策略）：
 //  1. 被动优先：凭证最近服务过真实请求（响应头携带额度信号）时直接采用，零主动查询；
 //  2. 受保护凭证：无被动数据时每轮主动查询（守卫决策依赖）；
 //  3. 未保护凭证：仅当兜底间隔到期才主动查询，其余轮次沿用上次读数。
